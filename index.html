@@ -38,7 +38,7 @@
             box-shadow: var(--shadow);
             border: 1px solid var(--line);
             width: 100%;
-            max-width: 420px;
+            max-width: 560px;
             overflow: hidden;
         }
 
@@ -145,6 +145,9 @@
             color: var(--muted);
             font-size: 13px;
         }
+        [hidden] { display: none !important; }
+        a[download] { display: inline-block; margin-top: 14px; color: #9333ea; font-size: 13px; font-weight: 700; }
+        button:disabled { opacity: .6; cursor: wait; }
     </style>
 </head>
 <body>
@@ -165,96 +168,112 @@
                 <label for="donation">별풍선 개수</label>
                 <input type="number" id="donation" name="donation" placeholder="예: 1000" min="1" step="1" max="9007199254740991" required autocomplete="off">
             </div>
-            <button type="submit" class="btn-submit">이미지 생성하기</button>
+            <button type="submit" class="btn-submit">두 가지 이미지 생성하기</button>
         </form>
 
         <div class="result-section">
-            <h2 class="result-title">생성된 미리보기</h2>
-            <div class="preview-container" id="previewContainer">
-                <span class="placeholder-text" id="placeholderText">정보를 입력해주세요</span>
-                <!-- 원본과 동일한 187×155 크기 -->
-                <canvas id="resultCanvas" width="187" height="155" style="display:none; width: 100%; height: 100%; object-fit: contain;"></canvas>
+            <h2 class="result-title">두 가지 버전 미리보기</h2>
+            <p id="status" role="status" style="font-size:13px; margin-bottom:16px;">닉네임과 개수를 입력해주세요.</p>
+            <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:24px;">
+                <div>
+                    <h3 style="font-size:14px; margin-bottom:10px;">버전 1 · 이중 테두리</h3>
+                    <canvas id="canvas1" width="187" height="155" aria-label="이중 테두리 이미지" style="border:1px solid #e6daf0; display:block;"></canvas>
+                    <a id="download1" download="star_balloon_double.png" hidden>버전 1 PNG 다운로드</a>
+                </div>
+                <div>
+                    <h3 style="font-size:14px; margin-bottom:10px;">버전 2 · 얇은 테두리</h3>
+                    <canvas id="canvas2" width="187" height="155" aria-label="얇은 테두리 이미지" style="border:1px solid #e6daf0; display:block;"></canvas>
+                    <a id="download2" download="star_balloon_thin.png" hidden>버전 2 PNG 다운로드</a>
+                </div>
             </div>
-            <br>
-            <a id="downloadLink" href="#" download="star_balloon.png" class="mt-4 text-purple-600 font-semibold hover:underline" style="display:none;">이미지 다운로드</a>
         </div>
     </div>
 
     <script>
         const form = document.getElementById('imageForm');
-        const resultCanvas = document.getElementById('resultCanvas');
-        const ctx = resultCanvas.getContext('2d');
-        const placeholderText = document.getElementById('placeholderText');
-        const downloadLink = document.getElementById('downloadLink');
+        const button = form.querySelector('button');
+        const status = document.getElementById('status');
+        const canvases = [document.getElementById('canvas1'), document.getElementById('canvas2')];
+        const links = [document.getElementById('download1'), document.getElementById('download2')];
+        const imageUrl = 'https://uyqziawjqlrqjkwsjnji.supabase.co/storage/v1/object/public/Sig/ba_step.png';
+        let loading = false;
 
-        form.addEventListener('submit', (event) => {
+        function loadImage() {
+            return new Promise((resolve, reject) => {
+                const image = new Image();
+                const timer = setTimeout(() => {
+                    image.onload = image.onerror = null;
+                    reject(new Error('이미지 로딩 시간이 초과되었습니다. 다시 시도해주세요.'));
+                }, 20000);
+                image.crossOrigin = 'anonymous';
+                image.onload = () => { clearTimeout(timer); resolve(image); };
+                image.onerror = () => {
+                    clearTimeout(timer);
+                    reject(new Error('이미지를 불러올 수 없습니다. 네트워크와 이미지 공개 설정을 확인해주세요.'));
+                };
+                image.src = imageUrl;
+            });
+        }
+
+        function drawVersion(canvas, image, nickname, donation, doubleOutline) {
+            canvas.width = 187;
+            canvas.height = 155;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+            const formattedDonation = Number(donation).toLocaleString('ko-KR');
+            ctx.font = 'bold 13px "Malgun Gothic", Dotum, sans-serif';
+            ctx.fillStyle = '#d13f30';
+            ctx.textAlign = 'center';
+            ctx.fillText(nickname, canvas.width / 2, canvas.height - 23);
+            ctx.fillStyle = 'black';
+            ctx.fillText(`별풍선 ${formattedDonation}개`, canvas.width / 2, canvas.height - 7);
+
+            ctx.font = 'bold 40px Arial, "Malgun Gothic", sans-serif';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = doubleOutline ? 8 : 1;
+            ctx.strokeText(donation, canvas.width / 2, 40);
+            if (doubleOutline) {
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 6;
+                ctx.strokeText(donation, canvas.width / 2, 40);
+            }
+            ctx.fillStyle = '#ff0000';
+            ctx.fillText(donation, canvas.width / 2, 40);
+            return canvas.toDataURL('image/png');
+        }
+
+        form.addEventListener('submit', async (event) => {
             event.preventDefault();
-
+            if (loading) return;
             const nickname = document.getElementById('nickname').value.trim();
             const donation = document.getElementById('donation').value.trim();
-
             if (!nickname || !Number.isSafeInteger(Number(donation)) || Number(donation) < 1) {
-                alert('닉네임과 1 이상의 정수 개수를 입력해주세요.');
+                status.textContent = '닉네임과 1 이상의 정수 개수를 입력해주세요.';
                 return;
             }
-
-            placeholderText.style.display = 'none';
-            downloadLink.style.display = 'none';
-            resultCanvas.style.display = 'block';
-
-            // 일반 별풍선 이미지만 사용
-            const imageUrl = 'https://uyqziawjqlrqjkwsjnji.supabase.co/storage/v1/object/public/Sig/ba_step.png';
-
-            ctx.clearRect(0, 0, resultCanvas.width, resultCanvas.height);
-
-            const bgImage = new Image();
-            // 주의: 만약 외부 서버에서 CORS를 허용하지 않으면 캔버스에 안 그려질 수 있습니다. 
-            // 이 경우 브라우저 보안 때문에 우회가 안 되므로 서버 측 설정이 필요할 수 있습니다.
-            bgImage.crossOrigin = 'anonymous'; 
-
-
-            bgImage.onload = () => {
-    ctx.drawImage(bgImage, 0, 0, resultCanvas.width, resultCanvas.height);
-
-    // 숫자에 천 단위 콤마(,) 추가
-    const formattedDonation = Number(donation).toLocaleString();
-
-    // 1. 닉네임 (mk)삼김 설정 (맑은 고딕 적용, 약간 어두운 빨간색)
-    ctx.font = 'bold 13px "Malgun Gothic", Dotum, sans-serif';
-    ctx.fillStyle = '#d13f30'; 
-    ctx.textAlign = 'center';
-    ctx.fillText(nickname, resultCanvas.width / 2, resultCanvas.height - 23);
-
-    // 2. 하단 별풍선 개수 텍스트 (콤마 적용)
-    ctx.font = 'bold 13px "Malgun Gothic", Dotum, sans-serif';
-    ctx.fillStyle = 'black';
-    ctx.fillText(`별풍선 ${formattedDonation}개`, resultCanvas.width / 2, resultCanvas.height - 7);
-
-    // 3. 상단 큰 숫자 (흰 테두리 제거, 검은 테두리만 얇게, 콤마 적용)
-    ctx.font = 'bold 40px Arial, "Malgun Gothic", sans-serif';
-    ctx.textAlign = 'center';
-
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = 8;
-    ctx.strokeText(donation, resultCanvas.width / 2, 40);
-
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = 6;
-     ctx.strokeText(donation, resultCanvas.width / 2, 40);
-              
-    // 빨간색 채우기
-    ctx.fillStyle = '#ff0000';
-    ctx.fillText(donation, resultCanvas.width / 2, 40);
-
-    downloadLink.href = resultCanvas.toDataURL('image/png');
-    downloadLink.style.display = 'inline-block';
-};
-
-            bgImage.onerror = () => {
-                alert('이미지를 불러오는 중 문제가 발생했습니다. (CORS 보안 정책 또는 잘못된 주소)');
-            };
-            bgImage.src = imageUrl;
+            loading = true;
+            button.disabled = true;
+            button.textContent = '이미지 생성 중…';
+            status.textContent = '별풍선 이미지를 불러오는 중입니다.';
+            links.forEach(link => { link.hidden = true; link.removeAttribute('href'); });
+            canvases.forEach(canvas => { canvas.width = 187; });
+            try {
+                const image = await loadImage();
+                const urls = canvases.map((canvas, index) => drawVersion(canvas, image, nickname, donation, index === 0));
+                links.forEach((link, index) => { link.href = urls[index]; link.hidden = false; });
+                status.textContent = '완료! 원하는 버전의 PNG를 각각 다운로드하세요.';
+            } catch (error) {
+                canvases.forEach(canvas => { canvas.width = 187; });
+                status.textContent = error.name === 'SecurityError'
+                    ? '이미지 서버에서 다운로드를 허용하지 않습니다. CORS 설정을 확인해주세요.'
+                    : error.message;
+            } finally {
+                loading = false;
+                button.disabled = false;
+                button.textContent = '두 가지 이미지 생성하기';
+            }
         });
     </script>
 </body>
 </html>
+
